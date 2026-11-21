@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant import config_entries
@@ -14,6 +13,7 @@ import homeassistant.helpers.config_validation as cv
 from miio import Device, DeviceException
 import voluptuous as vol
 
+from .log import get_logger
 from .const import (
     CONF_MODEL,
     CONF_PRESET_MODES_OVERRIDE,
@@ -24,7 +24,7 @@ from .const import (
     SUPPORTED_MODELS,
 )
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 AUTO_DETECT_MODEL = "auto"
 

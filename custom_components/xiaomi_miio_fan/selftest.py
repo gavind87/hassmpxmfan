@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from importlib.metadata import PackageNotFoundError, version
-import logging
 import sys
 import time
 import traceback
@@ -29,11 +28,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
+from .log import get_logger
 from .const import DOMAIN
 from .discovery import broadcast_discover_device_ids
 from .fan import _model_spec, get_available_attributes
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 TAG = "SELFTEST"
 SETTLE_SECONDS = 5

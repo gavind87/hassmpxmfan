@@ -28,14 +28,15 @@ than migrating the fan entity onto this coordinator too:
 from __future__ import annotations
 
 from datetime import timedelta
-import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from miio import DeviceException
 
-_LOGGER = logging.getLogger(__name__)
+from .log import get_logger
+
+_LOGGER = get_logger(__name__)
 
 DEFAULT_UPDATE_INTERVAL = timedelta(seconds=30)
 

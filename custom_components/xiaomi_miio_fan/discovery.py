@@ -8,10 +8,11 @@ but collects the replies instead of only logging them.
 
 from __future__ import annotations
 
-import logging
 import socket
 
-_LOGGER = logging.getLogger(__name__)
+from .log import get_logger
+
+_LOGGER = get_logger(__name__)
 
 _HELLO = bytes.fromhex(
     "21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
