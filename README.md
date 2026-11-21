@@ -1,330 +1,78 @@
 # Xiaomi Mi Smart Pedestal Fan
 
-A Home Assistant integration for Xiaomi and Mijia smart fans, controlled locally over the miIO protocol. Current version: **1.0.0**.
+Personal Home Assistant integration for Xiaomi/Mijia smart fans, controlled locally over miIO. Version **1.0.0**.
 
-> **Attribution:** this project is a modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan), originally created by Sebastian Muszynski (syssi) and licensed under the Apache License 2.0. The fan platform (`fan.py`) in particular is still largely derived from the original. This fork adds a config flow, device pages, auto-heal, additional sensor/binary_sensor/switch entities, startup self-test diagnostics and a test suite. It is not affiliated with or endorsed by the original author. See [NOTICE](NOTICE).
+A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Sebastian Muszynski, Apache 2.0); `fan.py` is still largely derived from it. See [NOTICE](NOTICE).
 
-## Supported devices
+## Status
 
-| Name                        | Model                  | Model no. | Specs |
-| ----------------------------| ---------------------- | --------- | ----- |
-| Pedestal Fan Fan V2         | zhimi.fan.v2           | | |
-| Pedestal Fan Fan V3         | zhimi.fan.v3           | | |
-| Pedestal Fan Fan SA1        | zhimi.fan.sa1          | | |
-| Pedestal Fan Fan ZA1        | zhimi.fan.za1          | | |
-| Pedestal Fan Fan ZA3        | zhimi.fan.za3          | | |
-| Pedestal Fan Fan ZA4        | zhimi.fan.za4          | ZLBPLDS04ZM | |
-| Smartmi Standing Fan 3      | zhimi.fan.za5          | | |
-| Pedestal Fan Fan 1C         | dmaker.fan.1c          | | |
-| Pedestal Fan Fan P5         | dmaker.fan.p5          | | |
-| Pedestal Fan Fan P8         | dmaker.fan.p8          | | |
-| Pedestal Fan Fan P9         | dmaker.fan.p9          | | |
-| Pedestal Fan Fan P10        | dmaker.fan.p10         | | |
-| Mijia Pedestal Fan          | dmaker.fan.p11         | BPLDS03DM  | 2800mAh, 24W, <=58dB  |
-| Smart Standing Fan 2 Pro    | dmaker.fan.p33         | BPLDS03DM  | 2800mAh, 24W, <=58dB  |
-| Pedestal Fan Fan P15        | dmaker.fan.p15         | | |
-| Mi Smart Standing Fan 2 P18 | dmaker.fan.p18         | BPLDS02DM  | AC, 15W, 30.2-55.8dB  |
-| Mi Smart Standing Fan 2 P30 | dmaker.fan.p30         | BPLDS02DM  | AC, 15W, 30.2-55.8dB  |
-| Rosou SS4 Ventilator        | leshow.fan.ss4         | | |
-| Xiaomi Smart Tower Fan      | dmaker.fan.p39         | BPTS01DM | 22W, <=63dB |
-| Xiaomi Smart Standing Air Circulation Fan | xiaomi.fan.p76 | JLLDS01XY | - |
-| Xiaomi Smart Desktop Air Circulation Fan  | xiaomi.fan.p70 | - | - |
-| Mi Smart Standing Fan 2 Lite              | xiaomi.fan.2lite | - | - |
-| Xiaomi Smart Standing Fan Pro Slim        | xiaomi.fan.p85 | - | - |
-| Xiaomi Smart Standing Fan Pro Slim 2       | xiaomi.fan.p43 | - | - |
-| Mijia Smart Evaporative Cooling Fan | dmaker.fan.p44 | - | - |
-| Xiaomi Smart Standing Air Circulation Fan / Mijia Circulation Fan | xiaomi.fan.p51 | - | - |
-| Rosou SS310 Ventilator | leshow.fan.ss310 | - | - |
-| Mijia Fan | dmaker.fan.p28 | - | - |
+| Phase | What | State |
+| ----- | ---- | ----- |
+| 1 | Config flow, YAML import, reconfigure step, device pages, IP auto-heal, shared retry/heal logic | Done, running on real HA |
+| 2 | `DataUpdateCoordinator` + shared runtime data; `sensor` / `binary_sensor` entities | Done |
+| 3 | `switch` entities (buzzer, child lock, ionizer, evaporative cooling) | Done |
+| 4 | Cleanup: command helper, typed runtime data, heal cooldown (~5 min), guarded host update | Done |
+| 5 | pytest suite (model spec, config flow, heal) + CI job; startup self-test | Done, released and running in prod |
+| 6 | Split `fan.py` (~6.7k lines): move MIoT status classes out, one declarative per-model field map and a single shared `async_update` in place of ~18 copies | Planned |
+| 7 | Single poller: move the fan entity onto the coordinator (fixes double polling); retry/heal move into the coordinator. Needs hardware testing on one fan first | Planned |
+| 8 | `number` (oscillation angle, delay-off) and `select` (LED brightness, natural mode) entities. Needs a per-model unit check first (delay-off is minutes on the base family but not on P5 and its subclasses) | Planned |
+| 9 | `diagnostics.py` (token/host redacted), repair issue to remove the imported YAML block, DHCP discovery | Planned |
 
+Order: 6 -> 7 -> 8 -> 9. Tests are the gate for the 6/7 refactors.
 
-## Features
+## Install and setup
 
-### Pedestal Fan
+Copy `custom_components/xiaomi_miio_fan` into the HA config folder (or add this repo to HACS as a custom repository) and restart HA. Then **Settings > Devices & Services > Add Integration > Xiaomi Mi Smart Pedestal Fan**: enter host and token, leave model on auto-detect unless the fan doesn't answer the info probe reliably. `retries` and `preset_modes_override` can be changed from **Configure**.
 
-* Power (on, off)
-* Preset modes (Level 1, Level 2, Level 3, Level 4)
-* Speed percentage (0...100)
-* Oscillate (on, off)
-* Oscillation angle (30, 60, 90, 120, 140, 150)
-* Natural mode (on, off)
-* Rotate by 5 degrees (left, right)
-* Child lock (on, off)
-* LED brightness (bright, dim, off)
-* Attributes
-  - model
-  - temperature (zhimi.fan.v2 and v3 only)
-  - humidity (zhimi.fan.v2 and v3 only)
-  - led_brightness
-  - buzzer
-  - child_lock
-  - natural_level
-  - oscillate
-  - delay_off_countdown
-  - speed
-  - direct_speed
-  - natural_speed
-  - angle
-  - use_time
-  - ac_power
-  - battery (zhimi.fan.v2 and v3 only)
-  - battery_charge (zhimi.fan.v2 & v3 only)
-  - button_pressed (zhimi.fan.v2 & v3 only)
-  - led (zhimi.fan.v2 only)
-  - battery_state (zhimi.fan.v2 only)
-  - anion (zhimi.fan.za5 only)
-
-
-### Rosou SS4 Ventilator (leshow.fan.ss4)
-
-* Power (on, off)
-* Operation modes (manual, sleep, strong, natural)
-* Preset modes (Level 1, Level 2, Level 3, Level 4)
-* Speed percentage (0...100)
-* Oscillate (on, off)
-* Buzzer (on, off)
-* Delayed turn off (minutes)
-
-* Attributes
-  - `model`
-  - `mode`
-  - `speed`
-  - `buzzer`
-  - `oscillate`
-  - `delay_off_countdown`
-  - `error_detected`
-
-
-## Install
-
-You can install this custom component via [HACS](https://hacs.xyz/). Search for 'Xiaomi Mi Smart Pedestal Fan Integration' at the integration page of HACS. Alternatively, you can install it manually by copying the custom_components folder to your Home Assistant configuration folder. A restart of Home Assistant is required afterwards.
-
-## Setup
-
-### From the UI (recommended)
-
-Go to **Settings > Devices & Services > Add Integration** and search for "Xiaomi Mi Smart Pedestal Fan". Enter the host/IP and API token (see above for how to get the token); leave the model on auto-detect unless your device doesn't reliably answer the generic info probe. The fan is added as its own Device, with the model/manufacturer/firmware shown on its device page, and `retries`/`preset_modes_override` can be tuned afterwards from the integration's **Configure** button.
-
-### From configuration.yaml (legacy, still supported)
+Legacy YAML still works and is imported into a config entry once on startup (the YAML block can then be removed):
 
 ```yaml
-# configuration.yaml
-
 fan:
   - platform: xiaomi_miio_fan
-    name: Xiaomi Smart Fan
     host: 192.168.130.71
-    token: b7c4a758c251955d2c24b1d9e41ce47d
+    token: <token>
+    # name, model, preset_modes_override are optional
 ```
 
-Configuration variables:
-- **host** (*Required*): The IP of your fan.
-- **token** (*Required*): The API token of your fan.
-- **name** (*Optional*): The name of your fan.
-- **model** (*Optional*): The model of your device. This setting can be used to bypass the device model detection and is recommended if your device isn't always available.
-- **preset_modes_override** (*Optional*): Overrides the list of preset modes. Can be used to suppress the preset mode switches at homekit by passing an empty list (`preset_modes_override: []`).
+If a YAML entry sets `model:`, the fan gets a stable unique ID for the first time on import, which HA treats as a new entity.
 
-YAML entries are imported into a config entry automatically on startup (once), so they show up and can be managed under **Settings > Devices & Services** too. You can remove the YAML block once the import has happened if you'd rather manage the fan entirely from the UI.
+### IP changes
 
-### When a fan's IP address changes
+If a fan stops responding after repeated polls, the integration broadcasts on the LAN for its miIO device ID and switches to the new address automatically (same subnet only, 5 min cooldown). If it's on another network or the token changed, use **Reconfigure** on the entry.
 
-If a fan's IP changes (a new DHCP lease, a router reboot) and it stops responding, the integration will scan the local network for it by its stable miIO device ID and switch to the new address automatically, logging what it found. This only works within the same broadcast domain/subnet as Home Assistant. If a fan moves to a different network, or its token changed, use the integration's **Reconfigure** option (on its entry under Settings > Devices & Services) to update the host/token by hand.
+### Startup self-test
 
-### Migrating from the earlier YAML-only setup
+A read-only diagnostic report is written to the HA log shortly after setup (one `status()` call plus a discovery broadcast, never a command). Search the log for `SELFTEST`. Disable with `SELFTEST_ENABLED = False` in `const.py`. All log output is tagged `[XIAOMI_MIIO_FAN]`.
 
-If your YAML entry did **not** set `model:` (the common case), nothing changes: the fan keeps the exact same entity it always had, now additionally grouped under its own device page. If you *did* set `model:` explicitly, that fan previously had no stable unique ID at all (a long-standing bug) - after upgrading it will get one for the first time, which Home Assistant will treat as a new entity. Re-apply any customizations (friendly name, area, automations) to the new entity, or remove `model:` from your YAML so auto-detection can recover the original identity.
+## Supported models
 
-## Monitoring entities
+zhimi.fan.v2, v3, sa1, za1, za3, za4, za5 · dmaker.fan.1c, p5, p8, p9, p10, p11, p15, p18, p28, p30, p33, p39, p44 · leshow.fan.ss4, ss310 · xiaomi.fan.p43, p51, p70, p76, p85, 2lite
 
-Besides the `fan` entity, each device also gets read-only sensor/binary sensor entities for whichever of the following its model actually exposes (most models only expose a few of these):
+## Entities
 
-- **Sensors**: temperature, humidity, use time, battery state, battery charging state, last button pressed.
+- **fan**: power, preset modes (Level 1-4), speed percentage, oscillation, direction (5 degree rotate), plus model-dependent attributes (temperature/humidity on v2/v3, anion on za5, etc.).
+- **Sensors** (where the model exposes them): temperature, humidity, use time, battery state, battery charging state, last button pressed.
 - **Binary sensors**: water tank empty, error detected, AC power.
-
-These share one poller (so they don't add extra network traffic per entity) and go unavailable rather than needing their own retry handling. The fan entity itself still polls separately and handles its own retries/IP auto-heal, as described above.
-
-## Switches
-
-Fans that support them also get switch entities for: buzzer, child lock, the ionizer (ZA5), and evaporative cooling (P44). These delegate to the exact same command logic the `fan` entity itself uses, so they stay in sync with it.
-
-Natural mode, oscillation angle, delay-off, and LED brightness are *not* exposed as entities (yet) - those turned out to have real per-model differences in units/semantics that need resolving one model at a time rather than exposed uniformly. They remain available as services (see below).
-
-## Platform services
-
-#### Service `fan.set_percentage`
-
-Set the fan speed percentage.
-
-| Service data attribute    | Optional | Description                                                                |
-|---------------------------|----------|----------------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific fan entity. Else targets all.                       |
-| `percentage`              |       no | Percentage speed setting. Valid values are between 0 and 100.              |
-
-#### Service `fan.set_preset_mode`
-
-Set a preset mode.
-
-| Service data attribute    | Optional | Description                                                                  |
-|---------------------------|----------|------------------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific fan entity. Else targets all.                         |
-| `preset_mode`             |       no | Preset mode. Valid values are `Level 1`, `Level 2`, `Level 3` and `Level 4`. |
-
-#### Service `fan.oscillate`
-
-Oscillates the fan.
-
-| Service data attribute    | Optional | Description                                                           |
-|---------------------------|----------|-----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific fan entity. Else targets all.                  |
-| `oscillating`             |       no | Flag to turn on/off oscillation. Valid values are `True` and `False`. |
-
-#### Service `fan.set_direction`
-
-Rotates the fan 5 degrees to the left/right.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific fan entity. Else targets all.                 |
-| `direction`               |       no | Rotate the fan 5 degrees. Valid values are `left`/`reverse` and `right`/`forward`.       |
-
-#### Service `xiaomi_miio_fan.fan_set_oscillation_angle`
-
-Set the oscillation angle. Supported values are 30, 60, 90 and 120 degrees.
-
-| Service data attribute    | Optional | Description                                                            |
-|---------------------------|----------|------------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.           |
-| `angle`                   |       no | Angle in degrees. Valid values are `30`, `60`, `90`, `120`, and `140`. |
-
-#### Service `xiaomi_miio_fan.fan_set_delay_off`
-
-Set the scheduled turn off time. Supported values are 0, 60, 120, 180, 240, 300, 360, 420, 480 minutes. When 0 is passed, delay_off is disabled.
-
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-| `delay_off_countdown`     |       no | Time in minutes. Valid values are `0`, `60`, `120`, `180`, `240`, `300`, `360`, `420`, `480` minutes. |
-
-#### Service `xiaomi_miio_fan.fan_set_natural_mode_on`
-
-Turn the natural mode on.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_natural_mode_off`
-
-Turn the natural mode off.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_buzzer_on`
-
-Turn the buzzer on.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_buzzer_off`
-
-Turn the buzzer off.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_child_lock_on`
-
-Turn the child lock on.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_child_lock_off`
-
-Turn the child lock off.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_led_brightness`
-
-Set the led brightness. Supported values are 0 (Bright), 1 (Dim), 2 (Off).
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-| `brightness`              |       no | Brightness, between 0 and 2.                                         |
-
-#### Service `xiaomi_miio_fan.fan_set_anion_on`
-
-Turn the ionizer on.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_anion_off`
-
-Turn the ionizer off.
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_air_cooler_on`
-
-Turn the evaporative water cooling on. (P44 only)
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_air_cooler_off`
-
-Turn the evaporative water cooling off. (P44 only)
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_turn`
-
-Turn to the given direction. Supported values are `left` and `right`, plus `up` and `down` on P70 and P76. (P30, P45, P70, P76, P85, P43, and P51)
-
-| Service data attribute | Optional | Description                                                                          |
-|------------------------|----------|--------------------------------------------------------------------------------------|
-| `entity_id`            | yes      | Only act on a specific xiaomi miio entity. Else targets all.                         |
-| `direction`            | no       | Direction. Valid values are `left` and `right`; `up` and `down` only on P70 and P76. |
-
-#### Service `xiaomi_miio_fan.fan_set_vertical_oscillation_on`
-
-Turn the vertical oscillation on. (P70, P76, SS310 and P28 only)
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_vertical_oscillation_off`
-
-Turn the vertical oscillation off. (P70, P76, SS310 and P28 only)
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-
-#### Service `xiaomi_miio_fan.fan_set_vertical_oscillation_angle`
-
-Set the vertical oscillation angle. (P70, P76 and P28 only)
-
-| Service data attribute    | Optional | Description                                                          |
-|---------------------------|----------|----------------------------------------------------------------------|
-| `entity_id`               |      yes | Only act on a specific xiaomi miio entity. Else targets all.         |
-| `vertical_angle`          |       no | Vertical angle in degrees. Valid values are `30`, `60`, `90` and `100`. |
+- **Switches**: buzzer, child lock, ionizer (ZA5), evaporative cooling (P44). These call the same command logic as the fan entity.
+
+Sensors share one coordinator poller; the fan entity still polls on its own (see Phase 7). Natural mode, oscillation angle, delay-off and LED brightness are services only until Phase 8.
+
+## Services
+
+Standard `fan.*` services: `set_percentage`, `set_preset_mode`, `oscillate`, `set_direction`.
+
+Custom `xiaomi_miio_fan.*` services (all take an optional `entity_id`):
+
+| Service | Data | Notes |
+| ------- | ---- | ----- |
+| `fan_set_oscillation_angle` | `angle`: 30, 60, 90, 120, 140 | |
+| `fan_set_delay_off` | `delay_off_countdown`: 0, 60, 120 ... 480 (minutes) | 0 disables |
+| `fan_set_natural_mode_on` / `_off` | | |
+| `fan_set_buzzer_on` / `_off` | | |
+| `fan_set_child_lock_on` / `_off` | | |
+| `fan_set_led_brightness` | `brightness`: 0 bright, 1 dim, 2 off | |
+| `fan_set_anion_on` / `_off` | | ZA5 |
+| `fan_set_air_cooler_on` / `_off` | | P44 |
+| `fan_turn` | `direction`: left, right (up, down on P70/P76) | P30, P45, P70, P76, P85, P43, P51 |
+| `fan_set_vertical_oscillation_on` / `_off` | | P70, P76, SS310, P28 |
+| `fan_set_vertical_oscillation_angle` | `vertical_angle`: 30, 60, 90, 100 | P70, P76, P28 |
