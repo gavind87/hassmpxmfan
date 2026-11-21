@@ -1,4 +1,10 @@
-"""Fan platform for Xiaomi and Mijia smart fans."""
+"""Fan platform for Xiaomi and Mijia smart fans.
+
+Derived from https://github.com/syssi/xiaomi_fan (Apache License 2.0,
+original work by Sebastian Muszynski). Modified by gavind87: config flow,
+device registry, coordinator/auto-heal integration and other changes.
+See the NOTICE file in the repository root.
+"""
 
 import asyncio
 from enum import Enum

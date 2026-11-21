@@ -1,0 +1,16 @@
+Xiaomi Mi Smart Pedestal Fan (mi_fan)
+Copyright 2026 gavind87
+
+This product is a modified version of "xiaomi_fan":
+  https://github.com/syssi/xiaomi_fan
+  Copyright (c) Sebastian Muszynski (syssi) and contributors
+  Licensed under the Apache License, Version 2.0.
+
+Changes made in this fork include: config flow and UI setup, device pages,
+coordinator and auto-heal logic, additional sensor, binary_sensor and switch
+entities, startup self-test diagnostics, translations and a test suite.
+Substantial portions of custom_components/xiaomi_miio_fan/fan.py remain
+derived from the original work.
+
+This fork is not affiliated with or endorsed by the original author.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
