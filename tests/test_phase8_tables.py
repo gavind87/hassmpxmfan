@@ -31,6 +31,12 @@ def test_angle_table_names_real_entity_classes():
 
 
 def test_delay_max_table_names_real_entity_classes():
+    """Same guard for the delay-off maximum table."""
     assert (
         set(_table_keys("number.py", "MAX_MINUTES_BY_ENTITY_CLASS")) <= _fan_classes()
     )
+
+
+def test_rotate_table_names_real_entity_classes():
+    """Same guard for the rotate-button table."""
+    assert set(_table_keys("button.py", "ROTATE_VIA_DIRECTION")) <= _fan_classes()
