@@ -1,5 +1,5 @@
 {
-  "name": "Xiaomi Mi Smart Pedestal Fan Integration",
+  "name": "Xiaomi Mi Smart Pedestal Fan (modernized fork of syssi/xiaomi_fan)",
   "content_in_root": false,
   "render_readme": true,
   "homeassistant": "2024.8.0"

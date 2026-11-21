@@ -4,10 +4,10 @@
   "codeowners": ["@gavind87"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/gavind87/mi_fan",
+  "documentation": "https://github.com/gavind87/hassmpxmfan",
   "integration_type": "hub",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/gavind87/mi_fan/issues",
+  "issue_tracker": "https://github.com/gavind87/hassmpxmfan/issues",
   "requirements": ["construct>=2.10.68", "python-miio>=0.5.12"],
   "version": "1.0.0"
 }

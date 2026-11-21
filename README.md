@@ -2,6 +2,8 @@
 
 A Home Assistant integration for Xiaomi and Mijia smart fans, controlled locally over the miIO protocol. Current version: **1.0.0**.
 
+> **Attribution:** this project is a modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan), originally created by Sebastian Muszynski (syssi) and licensed under the Apache License 2.0. The fan platform (`fan.py`) in particular is still largely derived from the original. This fork adds a config flow, device pages, auto-heal, additional sensor/binary_sensor/switch entities, startup self-test diagnostics and a test suite. It is not affiliated with or endorsed by the original author. See [NOTICE](NOTICE).
+
 ## Supported devices
 
 | Name                        | Model                  | Model no. | Specs |
