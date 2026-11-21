@@ -5,6 +5,7 @@ from enum import Enum
 from functools import partial
 import logging
 import math
+import time
 from typing import Any
 
 from homeassistant import config_entries
@@ -82,6 +83,9 @@ from .const import (
 from .discovery import broadcast_discover_device_ids
 
 _LOGGER = logging.getLogger(__name__)
+
+# Minimum gap between LAN scans for a fan that stays unreachable.
+HEAL_COOLDOWN_SECONDS = 300
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -1027,6 +1031,7 @@ class XiaomiGenericDevice(FanEntity):
         self._skip_update = False
         self.sw_version = None
         self._device_id: int | None = None
+        self._last_heal_attempt: float | None = None
 
     @property
     def supported_features(self):
@@ -1136,12 +1141,22 @@ class XiaomiGenericDevice(FanEntity):
             self._state = False
             self._skip_update = True
 
+    async def _async_set_feature(
+        self, feature: int, mask_error: str, func, *args
+    ) -> bool:
+        """Run a device command only if this model supports `feature`.
+
+        Returns True when the command was issued and the device acknowledged it.
+        """
+        if self._device_features & feature == 0:
+            return False
+
+        return await self._try_command(mask_error, func, *args)
+
     async def async_set_buzzer_on(self):
         """Turn the buzzer on."""
-        if self._device_features & FEATURE_SET_BUZZER == 0:
-            return
-
-        await self._try_command(
+        await self._async_set_feature(
+            FEATURE_SET_BUZZER,
             "Turning the buzzer of the miio device on failed.",
             self._device.set_buzzer,
             True,
@@ -1149,10 +1164,8 @@ class XiaomiGenericDevice(FanEntity):
 
     async def async_set_buzzer_off(self):
         """Turn the buzzer off."""
-        if self._device_features & FEATURE_SET_BUZZER == 0:
-            return
-
-        await self._try_command(
+        await self._async_set_feature(
+            FEATURE_SET_BUZZER,
             "Turning the buzzer of the miio device off failed.",
             self._device.set_buzzer,
             False,
@@ -1160,10 +1173,8 @@ class XiaomiGenericDevice(FanEntity):
 
     async def async_set_child_lock_on(self):
         """Turn the child lock on."""
-        if self._device_features & FEATURE_SET_CHILD_LOCK == 0:
-            return
-
-        await self._try_command(
+        await self._async_set_feature(
+            FEATURE_SET_CHILD_LOCK,
             "Turning the child lock of the miio device on failed.",
             self._device.set_child_lock,
             True,
@@ -1171,10 +1182,8 @@ class XiaomiGenericDevice(FanEntity):
 
     async def async_set_child_lock_off(self):
         """Turn the child lock off."""
-        if self._device_features & FEATURE_SET_CHILD_LOCK == 0:
-            return
-
-        await self._try_command(
+        await self._async_set_feature(
+            FEATURE_SET_CHILD_LOCK,
             "Turning the child lock of the miio device off failed.",
             self._device.set_child_lock,
             False,
@@ -1204,6 +1213,26 @@ class XiaomiGenericDevice(FanEntity):
             self._retry,
         )
 
+    def _set_device_host(self, new_host: str) -> bool:
+        """Point the miio client at a new IP; False if python-miio changed shape.
+
+        python-miio keeps the address both on the device and on its protocol
+        object, with no public setter. Verify both exist before touching
+        either, so an incompatible library version degrades to "no auto-heal"
+        instead of an AttributeError or a half-updated client.
+        """
+        protocol = getattr(self._device, "_protocol", None)
+        if protocol is None or not hasattr(protocol, "ip"):
+            _LOGGER.warning(
+                "%s: python-miio internals changed; cannot switch host in place",
+                self._name,
+            )
+            return False
+
+        self._device.ip = new_host
+        protocol.ip = new_host
+        return True
+
     async def _async_try_heal_host(self, ex: DeviceException) -> bool:
         """Best-effort: locate this device's new IP by its miIO device ID.
 
@@ -1215,6 +1244,16 @@ class XiaomiGenericDevice(FanEntity):
         """
         if self._device_id is None:
             return False
+
+        # A fan that stays offline would otherwise trigger a LAN broadcast on
+        # every poll once its retries are exhausted; rate-limit the scans.
+        now = time.monotonic()
+        if (
+            self._last_heal_attempt is not None
+            and now - self._last_heal_attempt < HEAL_COOLDOWN_SECONDS
+        ):
+            return False
+        self._last_heal_attempt = now
 
         _LOGGER.warning(
             "%s unreachable at %s after %s attempts (%s); scanning the "
@@ -1235,8 +1274,8 @@ class XiaomiGenericDevice(FanEntity):
             new_host,
             self._device.ip,
         )
-        self._device.ip = new_host
-        self._device._protocol.ip = new_host
+        if not self._set_device_host(new_host):
+            return False
 
         if self.registry_entry is not None and self.registry_entry.config_entry_id:
             entry = self.hass.config_entries.async_get_entry(

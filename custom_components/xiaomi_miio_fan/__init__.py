@@ -96,7 +96,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # model is only ever None here if model_override was None too, in which
     # case the except branch above already raised - this just makes that
     # invariant explicit for the type checker.
-    assert model is not None
+    if model is None:
+        raise ConfigEntryError("No fan model could be determined.")
     fan_client = build_fan_client(host, token, model)
     if fan_client is None:
         # Not a transient failure - retrying won't make an unknown model

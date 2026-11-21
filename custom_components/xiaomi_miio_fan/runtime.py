@@ -8,16 +8,22 @@ client object and coordinator instead of each connecting independently.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from miio import Device
+
+    from .coordinator import XiaomiMiioFanDataUpdateCoordinator
+    from .fan import XiaomiGenericDevice
 
 
 @dataclass
 class XiaomiMiioFanRuntimeData:
     """Everything a platform needs to set up entities for one config entry."""
 
-    fan: Any
-    fan_entity: Any
-    coordinator: Any
+    fan: Device
+    fan_entity: XiaomiGenericDevice
+    coordinator: XiaomiMiioFanDataUpdateCoordinator
     model: str
     name: str
     unique_id: str

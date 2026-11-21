@@ -8,15 +8,15 @@ done and deployed. This covers what remains.
 
 Safe to ship without hardware testing; verify with ruff, mypy, pyflakes.
 
-- [ ] Add a `_set_feature(flag, func, value, error_msg)` helper and collapse the
-      buzzer / child-lock / natural-mode on-off method pairs in `fan.py`.
-- [ ] Type `XiaomiMiioFanRuntimeData` properly (`fan`, `fan_entity`,
+- [x] Added `_async_set_feature` helper; buzzer / child-lock pairs collapsed.
+      Per-model natural-mode pairs are left for Phase 6 (messages/enums differ).
+- [x] Type `XiaomiMiioFanRuntimeData` properly (`fan`, `fan_entity`,
       `coordinator` are `Any` today).
-- [ ] Replace `assert model is not None` in `__init__.py` with a real raise.
-- [ ] Remove the leftover `hass.data[DATA_KEY]` pop on unload if nothing writes it.
-- [ ] Add a cooldown (about 5 min) to `_async_try_heal_host` so an offline fan
+- [x] Replace `assert model is not None` in `__init__.py` with a real raise.
+- [x] `hass.data[DATA_KEY]` is NOT a leftover (fan.py services use it); kept.
+- [x] Add a cooldown (about 5 min) to `_async_try_heal_host` so an offline fan
       doesn't broadcast on the LAN every poll cycle.
-- [ ] Replace `self._device._protocol.ip = ...` with a guarded or public path so
+- [x] Guard `self._device._protocol.ip = ...` with a guarded or public path so
       a python-miio upgrade can't break heal silently.
 
 ## Phase 5 - Tests
