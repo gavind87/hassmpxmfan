@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_TOKEN, Platform
@@ -17,10 +18,13 @@ from .const import (
     DATA_KEY,
     DEFAULT_NAME,
     DEFAULT_RETRIES,
+    DOMAIN,
+    SELFTEST_ENABLED,
 )
 from .coordinator import XiaomiMiioFanDataUpdateCoordinator
 from .fan import _build_device, build_fan_client
 from .runtime import XiaomiMiioFanRuntimeData
+from .selftest import async_run_selftest
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     split across them without risking a race.
     """
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    setup_started = time.monotonic()
 
     config = {**entry.data, **entry.options}
     host = config[CONF_HOST]
@@ -123,6 +128,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # monitoring entities will just start unavailable and pick up data on the
     # coordinator's next successful poll.
     await coordinator.async_refresh()
+    _LOGGER.info(
+        "%s: first coordinator refresh %s (data: %s)",
+        name,
+        "succeeded" if coordinator.last_update_success else "FAILED",
+        type(coordinator.data).__name__,
+    )
 
     entry.runtime_data = XiaomiMiioFanRuntimeData(
         fan=fan_client,
@@ -138,6 +149,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.info(
+        "%s: %s setup finished in %.1f s (host %s, %s)",
+        name,
+        DOMAIN,
+        time.monotonic() - setup_started,
+        host,
+        model,
+    )
+
+    if SELFTEST_ENABLED:
+        entry.async_create_background_task(
+            hass, async_run_selftest(hass, entry), f"{DOMAIN}_selftest"
+        )
 
     return True
 

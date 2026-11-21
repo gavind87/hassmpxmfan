@@ -23,10 +23,12 @@ Safe to ship without hardware testing; verify with ruff, mypy, pyflakes.
 
 Do this before Phase 6, since it makes the refactor safe.
 
-- [ ] Add `tests/` with pytest + `pytest-homeassistant-custom-component`.
-- [ ] Cover `_model_spec` (every supported model resolves), config flow
-      (user, import, reconfigure) and heal logic (mocked discovery).
-- [ ] Add a CI job running pytest next to hassfest / mypy / pre-commit.
+- [x] Add `tests/` with pytest + `pytest-homeassistant-custom-component`.
+- [x] Cover `_model_spec` (every supported model resolves), config flow
+      (user, import; reconfigure still to add) and heal logic (mocked discovery).
+- [x] Add a CI job running pytest next to hassfest / mypy / pre-commit.
+
+Written but not yet run (no local Home Assistant install); first CI run is the real check.
 
 ## Phase 6 - Consolidate `fan.py` (about 6.7k lines)
 
