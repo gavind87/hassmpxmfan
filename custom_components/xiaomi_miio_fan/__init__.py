@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from miio import Device, DeviceException
 
-from .log import get_logger
 from .const import (
     CONF_MODEL,
     CONF_PRESET_MODES_OVERRIDE,
@@ -23,6 +22,7 @@ from .const import (
 )
 from .coordinator import XiaomiMiioFanDataUpdateCoordinator
 from .fan import _build_device, build_fan_client
+from .log import get_logger
 from .runtime import XiaomiMiioFanRuntimeData
 from .selftest import async_run_selftest
 
@@ -33,6 +33,8 @@ PLATFORMS = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.SWITCH,
+    Platform.NUMBER,
+    Platform.SELECT,
 ]
 
 

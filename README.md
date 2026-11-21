@@ -15,7 +15,7 @@ A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Se
 | 5 | pytest suite (model spec, config flow, heal) + CI job; startup self-test | Done, released and running in prod |
 | 6 | Split `fan.py`: MIoT device/status classes moved into `miot/`; the ~18 copied `async_update` methods collapsed into one base-class template with a per-model `_apply_state` hook | Done, unreleased (not yet tried on hardware) |
 | 7 | Single poller: move the fan entity onto the coordinator (fixes double polling); retry/heal move into the coordinator. Needs hardware testing on one fan first | Planned |
-| 8 | `number` (oscillation angle, delay-off) and `select` (LED brightness, natural mode) entities. Needs a per-model unit check first (delay-off is minutes on the base family but not on P5 and its subclasses) | Planned |
+| 8 | `number` (turn-off timer), `select` (oscillation angle) and LED `switch`. Unit audit done: every client takes minutes except zhimi and ZA5, which the entity already converts. Multi-level LED brightness and natural mode stay service-only | Done (untested on hardware) |
 | 9 | `diagnostics.py` (token/host/MAC redacted) and a repair issue to remove the imported YAML block: done, unreleased. DHCP discovery: planned | Partly done |
 
 Order: 6 -> 7 -> 8 -> 9. Tests are the gate for the 6/7 refactors.

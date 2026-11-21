@@ -1,23 +1,17 @@
 """Switch platform for the Xiaomi Mi Smart Pedestal Fan integration.
 
-Scoped deliberately to the handful of controls confirmed to behave
-identically across every model that has them (each is defined exactly once,
-on the shared base entity class, and never overridden per model):
-buzzer, child lock, anion/ionizer (ZA5), evaporative air cooler (P44).
+On/off controls whose commands are uniform across the models that have them:
+buzzer, child lock, anion/ionizer (ZA5), evaporative air cooler (P44) and the
+on/off LED. Each delegates to the fan entity's existing command method.
 
-Left out for now, because verifying them turned up real per-model
-inconsistencies that need to be resolved model-by-model rather than exposed
-blindly: natural mode (state-dependent on the original zhimi fans, not a
-plain device command), oscillation angle, delay-off, LED brightness (each
-has at least one model-specific override with different semantics, and
-`delay_off` in particular is seconds on-device but documented/accepted in
-*minutes* by its own existing service - a real unit mismatch that predates
-this integration's modernization and deserves its own careful pass).
+Not exposed as switches: natural mode (state-dependent on the original zhimi
+fans, not a plain device command) and multi-level LED brightness (zhimi, ZA5).
+Oscillation angle and the turn-off timer live in `select.py` / `number.py`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
@@ -26,7 +20,6 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .log import get_logger
 from .coordinator import XiaomiMiioFanDataUpdateCoordinator
 from .entity import XiaomiMiioFanMonitoringEntity
 from .fan import (
@@ -34,8 +27,11 @@ from .fan import (
     ATTR_BUZZER,
     ATTR_CHILD_LOCK,
     ATTR_IONIZER,
+    ATTR_LED,
+    FEATURE_SET_LED,
     get_available_attributes,
 )
+from .log import get_logger
 
 _LOGGER = get_logger(__name__)
 
@@ -52,6 +48,10 @@ class XiaomiMiioFanSwitchDescription(SwitchEntityDescription):
     attr_key: str = ""
     turn_on_method: str = ""
     turn_off_method: str = ""
+    turn_on_kwargs: dict[str, Any] = field(default_factory=dict)
+    turn_off_kwargs: dict[str, Any] = field(default_factory=dict)
+    # Skip models whose entity doesn't advertise this FEATURE_* flag.
+    feature_flag: int = 0
 
 
 SWITCH_DESCRIPTIONS: tuple[XiaomiMiioFanSwitchDescription, ...] = (
@@ -87,6 +87,21 @@ SWITCH_DESCRIPTIONS: tuple[XiaomiMiioFanSwitchDescription, ...] = (
         turn_on_method="async_set_air_cooler_on",
         turn_off_method="async_set_air_cooler_off",
     ),
+    # On/off LED (night light, display). The entity's legacy 3-level API treats
+    # brightness 2 as "off" and anything else as "on" on every model carrying
+    # FEATURE_SET_LED; models with a real 3-level/raw LED (zhimi, ZA5) use a
+    # different flag and are intentionally not matched here.
+    XiaomiMiioFanSwitchDescription(
+        key="led",
+        attr_key=ATTR_LED,
+        name="LED",
+        entity_category=EntityCategory.CONFIG,
+        turn_on_method="async_set_led_brightness",
+        turn_off_method="async_set_led_brightness",
+        turn_on_kwargs={"brightness": 0},
+        turn_off_kwargs={"brightness": 2},
+        feature_flag=FEATURE_SET_LED,
+    ),
 )
 
 
@@ -111,6 +126,10 @@ async def async_setup_entry(
         for description in SWITCH_DESCRIPTIONS
         if description.attr_key in available
         and hasattr(runtime_data.fan_entity, description.turn_on_method)
+        and (
+            not description.feature_flag
+            or runtime_data.fan_entity._device_features & description.feature_flag
+        )
     )
 
 
@@ -152,10 +171,14 @@ class XiaomiMiioFanSwitch(XiaomiMiioFanMonitoringEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the control on, via the fan entity's existing command logic."""
-        await getattr(self._fan_entity, self.entity_description.turn_on_method)()
+        await getattr(self._fan_entity, self.entity_description.turn_on_method)(
+            **self.entity_description.turn_on_kwargs
+        )
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the control off, via the fan entity's existing command logic."""
-        await getattr(self._fan_entity, self.entity_description.turn_off_method)()
+        await getattr(self._fan_entity, self.entity_description.turn_off_method)(
+            **self.entity_description.turn_off_kwargs
+        )
         await self.coordinator.async_request_refresh()
