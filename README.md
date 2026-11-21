@@ -1,6 +1,6 @@
 # Xiaomi Mi Smart Pedestal Fan
 
-Personal Home Assistant integration for Xiaomi/Mijia smart fans, controlled locally over miIO. Version **1.0.0**.
+Personal Home Assistant integration for Xiaomi/Mijia smart fans, controlled locally over miIO. Version **1.3.0**.
 
 A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Sebastian Muszynski, Apache 2.0); `fan.py` is still largely derived from it. See [NOTICE](NOTICE).
 
@@ -13,7 +13,7 @@ A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Se
 | 3 | `switch` entities (buzzer, child lock, ionizer, evaporative cooling) | Done |
 | 4 | Cleanup: command helper, typed runtime data, heal cooldown (~5 min), guarded host update | Done |
 | 5 | pytest suite (model spec, config flow, heal) + CI job; startup self-test | Done, released and running in prod |
-| 6 | Split `fan.py` (~6.7k lines): move MIoT status classes out, one declarative per-model field map and a single shared `async_update` in place of ~18 copies | Planned |
+| 6 | Split `fan.py` (~6.7k lines): move MIoT status classes out, one declarative per-model field map and a single shared `async_update` in place of ~18 copies | Partly done, released in 1.3 (MIoT device/status classes moved out of `fan.py` into `miot/`); per-model field map and shared `async_update` still to do |
 | 7 | Single poller: move the fan entity onto the coordinator (fixes double polling); retry/heal move into the coordinator. Needs hardware testing on one fan first | Planned |
 | 8 | `number` (oscillation angle, delay-off) and `select` (LED brightness, natural mode) entities. Needs a per-model unit check first (delay-off is minutes on the base family but not on P5 and its subclasses) | Planned |
 | 9 | `diagnostics.py` (token/host redacted), repair issue to remove the imported YAML block, DHCP discovery | Planned |
