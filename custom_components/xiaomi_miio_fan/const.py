@@ -8,6 +8,9 @@ DATA_SERVICES_REGISTERED = "xiaomi_miio_fan_services_registered"
 DEFAULT_NAME = "Xiaomi Miio Fan"
 DEFAULT_RETRIES = 20
 
+# Log a one-off diagnostic report (see selftest.py) after each entry sets up.
+SELFTEST_ENABLED = True
+
 CONF_MODEL = "model"
 CONF_RETRIES = "retries"
 CONF_PRESET_MODES_OVERRIDE = "preset_modes_override"
