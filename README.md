@@ -1,6 +1,6 @@
 # Xiaomi Mi Smart Pedestal Fan
 
-Personal Home Assistant integration for Xiaomi/Mijia smart fans, controlled locally over miIO. Version **1.3.0**.
+Personal Home Assistant integration for Xiaomi/Mijia smart fans, controlled locally over miIO. Version **1.4.0**.
 
 A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Sebastian Muszynski, Apache 2.0); `fan.py` is still largely derived from it. See [NOTICE](NOTICE).
 
