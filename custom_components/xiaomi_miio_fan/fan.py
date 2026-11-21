@@ -24,6 +24,7 @@ from homeassistant.const import (
     CONF_TOKEN,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -846,6 +847,19 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         )
     )
 
+    # Nudge the user to delete the YAML block. Not persistent, so it vanishes
+    # on the first restart after the YAML is removed (this hook then no longer
+    # runs and nothing recreates it).
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"yaml_import_{config.get(CONF_HOST)}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="yaml_import",
+        translation_placeholders={"name": str(config.get(CONF_NAME, DEFAULT_NAME))},
+    )
+
 
 def _model_spec(  # noqa: PLR0911 - one early return per supported model
     model: str,
@@ -1201,6 +1215,35 @@ class XiaomiGenericDevice(FanEntity):
             False,
         )
 
+    async def async_update(self):
+        """Fetch state from the device (template; models override `_apply_state`)."""
+        # On state change the device doesn't provide the new state immediately.
+        if self._skip_update:
+            self._skip_update = False
+            return
+
+        try:
+            state = await self.hass.async_add_executor_job(self._device.status)
+            _LOGGER.debug("Got new state: %s", state)
+
+            self._available = True
+            self._apply_state(state)
+            self._state_attrs.update(
+                {
+                    key: self._extract_value_from_attribute(state, value)
+                    for key, value in self._available_attributes.items()
+                    if hasattr(state, value)
+                }
+            )
+            self._retry = 0
+
+        except DeviceException as ex:
+            await self._async_handle_update_failure(ex)
+
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields (per model)."""
+        raise NotImplementedError
+
     async def _async_handle_update_failure(self, ex: DeviceException) -> None:
         """Count a failed poll; auto-heal the host if possible, else go unavailable."""
         self._retry += 1
@@ -1335,45 +1378,24 @@ class XiaomiFan(XiaomiGenericDevice):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        # On state change the device doesn't provide the new state immediately.
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._oscillate = state.oscillate
+        self._natural_mode = state.natural_speed != 0
+        self._state = state.is_on
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._oscillate = state.oscillate
-            self._natural_mode = state.natural_speed != 0
-            self._state = state.is_on
-
-            if self._natural_mode:
-                for preset_mode, range in FAN_PRESET_MODES.items():
-                    if state.natural_speed in range:
-                        self._preset_mode = preset_mode
-                        self._percentage = state.natural_speed
-                        break
-            else:
-                for preset_mode, range in FAN_PRESET_MODES.items():
-                    if state.direct_speed in range:
-                        self._preset_mode = preset_mode
-                        self._percentage = state.direct_speed
-                        break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        if self._natural_mode:
+            for preset_mode, range in FAN_PRESET_MODES.items():
+                if state.natural_speed in range:
+                    self._preset_mode = preset_mode
+                    self._percentage = state.natural_speed
+                    break
+        else:
+            for preset_mode, range in FAN_PRESET_MODES.items():
+                if state.direct_speed in range:
+                    self._preset_mode = preset_mode
+                    self._percentage = state.direct_speed
+                    break
 
     @property
     def percentage(self):
@@ -1552,39 +1574,17 @@ class XiaomiFanP5(XiaomiFan):
             {attribute: None for attribute in self._available_attributes}
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        # On state change the device doesn't provide the new state immediately.
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.speed
+        self._oscillate = state.oscillate
+        self._natural_mode = state.mode == FanOperationMode.Nature
+        self._state = state.is_on
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.speed
-            self._oscillate = state.oscillate
-            self._natural_mode = state.mode == FanOperationMode.Nature
-            self._state = state.is_on
-
-            for preset_mode, range in FAN_PRESET_MODES.items():
-                if state.speed in range:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                }
-            )
-
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, range in FAN_PRESET_MODES.items():
+            if state.speed in range:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -1700,32 +1700,11 @@ class XiaomiFanLeshow(XiaomiGenericDevice):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        # On state change the device doesn't provide the new state immediately.
-        if self._skip_update:
-            self._skip_update = False
-            return
-
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.speed
-            self._oscillate = state.oscillate
-            self._state = state.is_on
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.speed
+        self._oscillate = state.oscillate
+        self._state = state.is_on
 
     @property
     def percentage(self):
@@ -1829,35 +1808,14 @@ class XiaomiFan1C(XiaomiFan):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        # On state change the device doesn't provide the new state immediately.
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._oscillate = state.oscillate
+        self._state = state.is_on
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._oscillate = state.oscillate
-            self._state = state.is_on
-
-            for preset_mode, value in FAN_PRESET_MODES_1C.items():
-                if state.speed == value:
-                    self._preset_mode = preset_mode
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_1C.items():
+            if state.speed == value:
+                self._preset_mode = preset_mode
 
     @property
     def percentage(self) -> int | None:
@@ -2009,37 +1967,17 @@ class XiaomiFanZA5(XiaomiFan):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.swing_mode
+        self._natural_mode = state.mode == FanOperationMode.Nature
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.swing_mode
-            self._natural_mode = state.mode == FanOperationMode.Nature
-            self._state = state.power
-
-            for preset_mode, speed_range in FAN_PRESET_MODES.items():
-                if state.fan_speed in speed_range:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, speed_range in FAN_PRESET_MODES.items():
+            if state.fan_speed in speed_range:
+                self._preset_mode = preset_mode
+                break
 
     @property
     def percentage(self) -> int | None:
@@ -2225,38 +2163,17 @@ class XiaomiFanP33(XiaomiFanMiot):
     - setting child lock works, but HA always reads the value as null
     """
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.percentage
+        self._oscillate = state.oscillate
+        self._natural_mode = state.mode == OperationModeFanP33.Nature
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.percentage
-            self._oscillate = state.oscillate
-            self._natural_mode = state.mode == OperationModeFanP33.Nature
-            self._state = state.power
-
-            for preset_mode, speed_range in FAN_PRESET_MODES.items():
-                if state.percentage in speed_range:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, speed_range in FAN_PRESET_MODES.items():
+            if state.percentage in speed_range:
+                self._preset_mode = preset_mode
+                break
 
     @property
     def percentage(self) -> int | None:
@@ -2332,38 +2249,17 @@ class XiaomiFanP39(XiaomiFanMiot):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.oscillate
+        self._natural_mode = state.mode == OperationModeFanP39.Nature
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.oscillate
-            self._natural_mode = state.mode == OperationModeFanP39.Nature
-            self._state = state.power
-
-            for preset_mode, speed_range in FAN_PRESET_MODES.items():
-                if state.fan_speed in speed_range:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, speed_range in FAN_PRESET_MODES.items():
+            if state.fan_speed in speed_range:
+                self._preset_mode = preset_mode
+                break
 
     @property
     def percentage(self) -> int | None:
@@ -2439,45 +2335,24 @@ class XiaomiFanP45(XiaomiFanMiot):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP45.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP45.Natural.name
-            self._state = state.power
-
-            if state.mode == OperationModeFanP45.Sleep.name:
-                self._preset_mode = FAN_PRESET_MODE_SLEEP
-            else:
-                self._preset_mode = None
-                for preset_mode, value in FAN_PRESET_MODES_P45.items():
-                    if preset_mode in (SPEED_OFF, FAN_PRESET_MODE_SLEEP):
-                        continue
-                    is_natural = preset_mode.startswith("Natural")
-                    if state.fan_level == value and is_natural == self._natural_mode:
-                        self._preset_mode = preset_mode
-                        break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        if state.mode == OperationModeFanP45.Sleep.name:
+            self._preset_mode = FAN_PRESET_MODE_SLEEP
+        else:
+            self._preset_mode = None
+            for preset_mode, value in FAN_PRESET_MODES_P45.items():
+                if preset_mode in (SPEED_OFF, FAN_PRESET_MODE_SLEEP):
+                    continue
+                is_natural = preset_mode.startswith("Natural")
+                if state.fan_level == value and is_natural == self._natural_mode:
+                    self._preset_mode = preset_mode
+                    break
 
     @property
     def percentage(self):
@@ -2635,42 +2510,21 @@ class XiaomiFanP76(XiaomiFanP33):
             self._vertical_oscillate = False
         self.async_write_ha_state()
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._vertical_oscillate = state.vertical_swing
+        self._natural_mode = state.mode == OperationModeFanP76.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._vertical_oscillate = state.vertical_swing
-            self._natural_mode = state.mode == OperationModeFanP76.Natural.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_P76.items():
-                if preset_mode == SPEED_OFF:
-                    continue
-                is_natural = preset_mode.startswith("Natural")
-                if state.fan_level == value and is_natural == self._natural_mode:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_P76.items():
+            if preset_mode == SPEED_OFF:
+                continue
+            is_natural = preset_mode.startswith("Natural")
+            if state.fan_level == value and is_natural == self._natural_mode:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -2809,41 +2663,20 @@ class XiaomiFanXiaomiP30(XiaomiFanP33):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanXiaomiP30.Nature.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanXiaomiP30.Nature.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_XIAOMI_P30.items():
-                if preset_mode == SPEED_OFF:
-                    continue
-                is_natural = preset_mode.startswith("Natural")
-                if state.fan_level == value and is_natural == self._natural_mode:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_XIAOMI_P30.items():
+            if preset_mode == SPEED_OFF:
+                continue
+            is_natural = preset_mode.startswith("Natural")
+            if state.fan_level == value and is_natural == self._natural_mode:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -2984,39 +2817,18 @@ class XiaomiFanP70(XiaomiFanP33):
             self._vertical_oscillate = False
         self.async_write_ha_state()
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._vertical_oscillate = state.vertical_swing
+        self._natural_mode = state.mode == OperationModeFanP70.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._vertical_oscillate = state.vertical_swing
-            self._natural_mode = state.mode == OperationModeFanP70.Natural.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_P70.items():
-                if state.fan_level == value:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_P70.items():
+            if state.fan_level == value:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -3154,40 +2966,19 @@ class XiaomiFan2Lite(XiaomiFanP33):
         """Return the number of speeds the fan supports."""
         return FAN_2LITE_SPEED_COUNT
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFan2Lite.Natural.name
+        self._state = state.power
+        self._preset_mode = FAN_PRESET_MODE_SLEEP if self._natural_mode else None
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFan2Lite.Natural.name
-            self._state = state.power
-            self._preset_mode = FAN_PRESET_MODE_SLEEP if self._natural_mode else None
-
-            if state.fan_level is None:
-                self._percentage = None
-            else:
-                self._percentage = ranged_value_to_percentage(
-                    (1, FAN_2LITE_SPEED_COUNT), state.fan_level + 1
-                )
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
+        if state.fan_level is None:
+            self._percentage = None
+        else:
+            self._percentage = ranged_value_to_percentage(
+                (1, FAN_2LITE_SPEED_COUNT), state.fan_level + 1
             )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
 
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the speed percentage of the fan."""
@@ -3298,41 +3089,20 @@ class XiaomiFanP85(XiaomiFanP33):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP85.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP85.Natural.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_P85.items():
-                if preset_mode == SPEED_OFF:
-                    continue
-                is_natural = preset_mode.startswith("Natural")
-                if state.fan_level == value and is_natural == self._natural_mode:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_P85.items():
+            if preset_mode == SPEED_OFF:
+                continue
+            is_natural = preset_mode.startswith("Natural")
+            if state.fan_level == value and is_natural == self._natural_mode:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -3445,41 +3215,20 @@ class XiaomiFanP43(XiaomiFanP33):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP43.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP43.Natural.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_P43.items():
-                if preset_mode == SPEED_OFF:
-                    continue
-                is_natural = preset_mode.startswith("Natural")
-                if state.fan_level == value and is_natural == self._natural_mode:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_P43.items():
+            if preset_mode == SPEED_OFF:
+                continue
+            is_natural = preset_mode.startswith("Natural")
+            if state.fan_level == value and is_natural == self._natural_mode:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -3634,71 +3383,50 @@ class XiaomiFanP44(XiaomiFanP33):
             level,
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP44.Natural.name
+        was_water_tank_empty = self._water_tank_empty
+        self._water_tank_empty = state.water_tank_empty
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP44.Natural.name
-            was_water_tank_empty = self._water_tank_empty
-            self._water_tank_empty = state.water_tank_empty
-            self._state = state.power
-
-            if (
-                state.water_tank_empty
-                and not was_water_tank_empty
-                and state.power
-                and (state.air_cooler or state.mode == OperationModeFanP44.Cold.name)
-            ):
-                _LOGGER.warning(
-                    "%s ran out of water while the evaporative cooling is "
-                    "running. Refill the water tank or switch the mode",
-                    self._name,
-                )
-
-            if state.fan_level is None:
-                self._percentage = None
-            else:
-                self._percentage = ranged_value_to_percentage(
-                    (1, FAN_P44_SPEED_COUNT), state.fan_level
-                )
-
-            if state.mode == OperationModeFanP44.Sleep.name:
-                self._preset_mode = FAN_PRESET_MODE_SLEEP
-            elif state.mode == OperationModeFanP44.Cold.name:
-                self._preset_mode = FAN_PRESET_MODE_COLD_AIR
-            else:
-                self._preset_mode = None
-                for preset_mode, value in FAN_PRESET_MODES_P44.items():
-                    if preset_mode in (
-                        SPEED_OFF,
-                        FAN_PRESET_MODE_SLEEP,
-                        FAN_PRESET_MODE_COLD_AIR,
-                    ):
-                        continue
-                    is_natural = preset_mode.startswith("Natural")
-                    if state.fan_level == value and is_natural == self._natural_mode:
-                        self._preset_mode = preset_mode
-                        break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
+        if (
+            state.water_tank_empty
+            and not was_water_tank_empty
+            and state.power
+            and (state.air_cooler or state.mode == OperationModeFanP44.Cold.name)
+        ):
+            _LOGGER.warning(
+                "%s ran out of water while the evaporative cooling is "
+                "running. Refill the water tank or switch the mode",
+                self._name,
             )
-            self._retry = 0
 
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        if state.fan_level is None:
+            self._percentage = None
+        else:
+            self._percentage = ranged_value_to_percentage(
+                (1, FAN_P44_SPEED_COUNT), state.fan_level
+            )
+
+        if state.mode == OperationModeFanP44.Sleep.name:
+            self._preset_mode = FAN_PRESET_MODE_SLEEP
+        elif state.mode == OperationModeFanP44.Cold.name:
+            self._preset_mode = FAN_PRESET_MODE_COLD_AIR
+        else:
+            self._preset_mode = None
+            for preset_mode, value in FAN_PRESET_MODES_P44.items():
+                if preset_mode in (
+                    SPEED_OFF,
+                    FAN_PRESET_MODE_SLEEP,
+                    FAN_PRESET_MODE_COLD_AIR,
+                ):
+                    continue
+                is_natural = preset_mode.startswith("Natural")
+                if state.fan_level == value and is_natural == self._natural_mode:
+                    self._preset_mode = preset_mode
+                    break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan.
@@ -3836,41 +3564,20 @@ class XiaomiFanP51(XiaomiFanP33):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.fan_speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP51.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.fan_speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP51.Natural.name
-            self._state = state.power
-
-            for preset_mode, value in FAN_PRESET_MODES_P51.items():
-                if preset_mode == SPEED_OFF:
-                    continue
-                is_natural = preset_mode.startswith("Natural")
-                if state.fan_level == value and is_natural == self._natural_mode:
-                    self._preset_mode = preset_mode
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        for preset_mode, value in FAN_PRESET_MODES_P51.items():
+            if preset_mode == SPEED_OFF:
+                continue
+            is_natural = preset_mode.startswith("Natural")
+            if state.fan_level == value and is_natural == self._natural_mode:
+                self._preset_mode = preset_mode
+                break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -3979,39 +3686,18 @@ class XiaomiFanLeshowSS310(XiaomiGenericDevice):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._oscillate = state.horizontal_swing
+        self._vertical_oscillate = state.vertical_swing
+        self._sleep_mode = state.mode == OperationModeFanSS310.Sleep.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._oscillate = state.horizontal_swing
-            self._vertical_oscillate = state.vertical_swing
-            self._sleep_mode = state.mode == OperationModeFanSS310.Sleep.name
-            self._state = state.power
-
-            self._current_level = None
-            for level_name, value in FAN_LEVELS_SS310.items():
-                if state.fan_level == value:
-                    self._current_level = level_name
-                    break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        self._current_level = None
+        for level_name, value in FAN_LEVELS_SS310.items():
+            if state.fan_level == value:
+                self._current_level = level_name
+                break
 
     @property
     def percentage(self) -> int | None:
@@ -4153,45 +3839,24 @@ class XiaomiFanP28(XiaomiFanP33):
             | FanEntityFeature.TURN_ON
         )
 
-    async def async_update(self):
-        """Fetch state from the device."""
-        if self._skip_update:
-            self._skip_update = False
-            return
+    def _apply_state(self, state) -> None:
+        """Map a fresh device status onto this entity's fields."""
+        self._percentage = state.speed
+        self._oscillate = state.horizontal_swing
+        self._natural_mode = state.mode == OperationModeFanP28.Natural.name
+        self._state = state.power
 
-        try:
-            state = await self.hass.async_add_executor_job(self._device.status)
-            _LOGGER.debug("Got new state: %s", state)
-
-            self._available = True
-            self._percentage = state.speed
-            self._oscillate = state.horizontal_swing
-            self._natural_mode = state.mode == OperationModeFanP28.Natural.name
-            self._state = state.power
-
-            if state.mode == OperationModeFanP28.Sleep.name:
-                self._preset_mode = FAN_PRESET_MODE_SLEEP
-            else:
-                self._preset_mode = None
-                for preset_mode, value in FAN_PRESET_MODES_P28.items():
-                    if preset_mode in (SPEED_OFF, FAN_PRESET_MODE_SLEEP):
-                        continue
-                    is_natural = preset_mode.startswith("Natural")
-                    if state.fan_level == value and is_natural == self._natural_mode:
-                        self._preset_mode = preset_mode
-                        break
-
-            self._state_attrs.update(
-                {
-                    key: self._extract_value_from_attribute(state, value)
-                    for key, value in self._available_attributes.items()
-                    if hasattr(state, value)
-                }
-            )
-            self._retry = 0
-
-        except DeviceException as ex:
-            await self._async_handle_update_failure(ex)
+        if state.mode == OperationModeFanP28.Sleep.name:
+            self._preset_mode = FAN_PRESET_MODE_SLEEP
+        else:
+            self._preset_mode = None
+            for preset_mode, value in FAN_PRESET_MODES_P28.items():
+                if preset_mode in (SPEED_OFF, FAN_PRESET_MODE_SLEEP):
+                    continue
+                is_natural = preset_mode.startswith("Natural")
+                if state.fan_level == value and is_natural == self._natural_mode:
+                    self._preset_mode = preset_mode
+                    break
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""

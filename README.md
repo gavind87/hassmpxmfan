@@ -13,10 +13,10 @@ A modernized fork of [syssi/xiaomi_fan](https://github.com/syssi/xiaomi_fan) (Se
 | 3 | `switch` entities (buzzer, child lock, ionizer, evaporative cooling) | Done |
 | 4 | Cleanup: command helper, typed runtime data, heal cooldown (~5 min), guarded host update | Done |
 | 5 | pytest suite (model spec, config flow, heal) + CI job; startup self-test | Done, released and running in prod |
-| 6 | Split `fan.py` (~6.7k lines): move MIoT status classes out, one declarative per-model field map and a single shared `async_update` in place of ~18 copies | Partly done, released in 1.3 (MIoT device/status classes moved out of `fan.py` into `miot/`); per-model field map and shared `async_update` still to do |
+| 6 | Split `fan.py`: MIoT device/status classes moved into `miot/`; the ~18 copied `async_update` methods collapsed into one base-class template with a per-model `_apply_state` hook | Done, unreleased (not yet tried on hardware) |
 | 7 | Single poller: move the fan entity onto the coordinator (fixes double polling); retry/heal move into the coordinator. Needs hardware testing on one fan first | Planned |
 | 8 | `number` (oscillation angle, delay-off) and `select` (LED brightness, natural mode) entities. Needs a per-model unit check first (delay-off is minutes on the base family but not on P5 and its subclasses) | Planned |
-| 9 | `diagnostics.py` (token/host redacted), repair issue to remove the imported YAML block, DHCP discovery | Planned |
+| 9 | `diagnostics.py` (token/host/MAC redacted) and a repair issue to remove the imported YAML block: done, unreleased. DHCP discovery: planned | Partly done |
 
 Order: 6 -> 7 -> 8 -> 9. Tests are the gate for the 6/7 refactors.
 
@@ -54,6 +54,9 @@ zhimi.fan.v2, v3, sa1, za1, za3, za4, za5 · dmaker.fan.1c, p5, p8, p9, p10, p11
 - **Sensors** (where the model exposes them): temperature, humidity, use time, battery state, battery charging state, last button pressed.
 - **Binary sensors**: water tank empty, error detected, AC power.
 - **Switches**: buzzer, child lock, ionizer (ZA5), evaporative cooling (P44). These call the same command logic as the fan entity.
+
+- **Diagnostics**: Download diagnostics on the device page (host, token, MAC and device ID redacted).
+- **Repairs**: while a legacy YAML block is still present, a repair notice asks you to remove it.
 
 Sensors share one coordinator poller; the fan entity still polls on its own (see Phase 7). Natural mode, oscillation angle, delay-off and LED brightness are services only until Phase 8.
 
