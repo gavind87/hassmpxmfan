@@ -71,12 +71,16 @@ def _short(value: Any, limit: int = 60) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-def _env_section(report: _Report) -> None:
-    report.section("environment")
+def _miio_version() -> str:
+    """Look up the python-miio version (blocking file I/O: run in executor)."""
     try:
-        miio_version = version("python-miio")
+        return version("python-miio")
     except PackageNotFoundError:
-        miio_version = "unknown"
+        return "unknown"
+
+
+def _env_section(report: _Report, miio_version: str) -> None:
+    report.section("environment")
     report.add(
         INFO, f"home assistant {ha_const.__version__}, python {sys.version.split()[0]}"
     )
@@ -335,8 +339,9 @@ async def async_run_selftest(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await asyncio.sleep(SETTLE_SECONDS)
 
     report = _Report()
+    miio_version = await hass.async_add_executor_job(_miio_version)
     steps: list[tuple[str, Callable[[], None]]] = [
-        ("environment", lambda: _env_section(report)),
+        ("environment", lambda: _env_section(report, miio_version)),
         ("config entry", lambda: _entry_section(report, entry)),
         ("model resolution", lambda: _model_section(report, entry)),
         ("coordinator", lambda: _coordinator_section(report, entry)),
