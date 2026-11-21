@@ -7,10 +7,10 @@ The table below was taken from each client's own `set_angle` validation
 (python-miio's `SUPPORTED_ANGLES` for P5/P9/P10/P11, and this repo's `miot/`
 modules for the rest).
 
-Deliberately not covered: the original zhimi fans (`XiaomiFan`), which accept
-any angle 0-120 and so don't fit a select, and the 1C, whose client has no
-`set_angle` at all (its feature flag is a pre-existing over-claim). Both keep
-working through the `fan_set_oscillation_angle` service.
+The original zhimi fans accept any angle 0-120 but are limited here to the
+30/60/90/120 steps the Mi Home app offers. Deliberately not covered: the 1C,
+whose client has no `set_angle` at all (its feature flag is a pre-existing
+over-claim); the `fan_set_oscillation_angle` service still takes any value.
 """
 
 from __future__ import annotations
@@ -38,6 +38,9 @@ _ANGLES_30_TO_90 = (30, 60, 90)
 
 # Keyed by entity class name (the model -> class lookup lives in fan.py).
 ANGLES_BY_ENTITY_CLASS: dict[str, tuple[int, ...]] = {
+    # zhimi clients accept any 0-120, but the Mi Home app (and the device's
+    # own oscillation) only uses these four steps.
+    "XiaomiFan": _ANGLES_30_TO_120,
     "XiaomiFanP5": _ANGLES_30_TO_140,
     "XiaomiFanZA5": _ANGLES_30_TO_120,
     "XiaomiFanP33": _ANGLES_30_TO_140,
