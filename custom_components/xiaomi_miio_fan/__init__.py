@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import time
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from miio import Device, DeviceException
 
+from .log import get_logger
 from .const import (
     CONF_MODEL,
     CONF_PRESET_MODES_OVERRIDE,
@@ -26,7 +26,7 @@ from .fan import _build_device, build_fan_client
 from .runtime import XiaomiMiioFanRuntimeData
 from .selftest import async_run_selftest
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 PLATFORMS = [
     Platform.FAN,

@@ -18,7 +18,6 @@ this integration's modernization and deserves its own careful pass).
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
@@ -27,6 +26,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .log import get_logger
 from .coordinator import XiaomiMiioFanDataUpdateCoordinator
 from .entity import XiaomiMiioFanMonitoringEntity
 from .fan import (
@@ -37,7 +37,7 @@ from .fan import (
     get_available_attributes,
 )
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 # Entities sharing one coordinator have no device I/O of their own to
 # throttle; the coordinator is what rate-limits actual polling, and each

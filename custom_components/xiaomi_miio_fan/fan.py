@@ -9,7 +9,6 @@ See the NOTICE file in the repository root.
 import asyncio
 from enum import Enum
 from functools import partial
-import logging
 import math
 import time
 from typing import Any
@@ -45,6 +44,7 @@ from miio.integrations.fan.leshow.fan_leshow import (
 from miio.miot_device import DeviceStatus, MiotDevice
 import voluptuous as vol
 
+from .log import get_logger
 from .const import (
     CONF_MODEL,
     CONF_PRESET_MODES_OVERRIDE,
@@ -88,7 +88,7 @@ from .const import (
 )
 from .discovery import broadcast_discover_device_ids
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = get_logger(__name__)
 
 # Minimum gap between LAN scans for a fan that stays unreachable.
 HEAL_COOLDOWN_SECONDS = 300
