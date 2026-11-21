@@ -2,10 +2,6 @@
 
 A Home Assistant integration for Xiaomi and Mijia smart fans, controlled locally over the miIO protocol. Current version: **1.0.0**.
 
-Please follow the instructions on [Retrieving the Access Token](https://www.home-assistant.io/integrations/xiaomi_miio/#xiaomi-cloud-tokens-extractor) to get the API token to use in the configuration.yaml file.
-
-Credits: Thanks to [Rytilahti](https://github.com/rytilahti/python-miio) for all the work.
-
 ## Supported devices
 
 | Name                        | Model                  | Model no. | Specs |
