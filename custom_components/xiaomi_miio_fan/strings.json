@@ -242,5 +242,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "yaml_import": {
+      "title": "Remove the {name} YAML configuration",
+      "description": "This fan was imported from configuration.yaml into a config entry and is now managed from Settings > Devices & Services. Delete its `platform: xiaomi_miio_fan` block from your YAML and restart Home Assistant; this notice then disappears."
+    }
   }
 }
